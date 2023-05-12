@@ -1,0 +1,221 @@
+pragma solidity ^0.4.25;
+
+contract RegistrationContract {
+    address regulatoryAuthority;
+    mapping(address => bool) authorized;
+    mapping(address => bool) isManufacturer;
+    mapping(address => bool) isHospital;
+    mapping(address => bool) isMaintenanceServiceProvider;
+    
+    struct Device {
+        bool exists;
+        address deviceAddress;
+        string deviceModel;
+        uint maintenanceInterval;
+        bytes32 deviceManualHash;
+    }
+
+    mapping(address => Device) devices;
+    
+    event StakeholderRegistered(address stakeholderAddress, string stakeholderType);
+    event DeviceRegistered(address deviceAddress, string deviceModel, uint maintenanceInterval, bytes32 deviceManualHash);
+    
+    constructor() public {
+        regulatoryAuthority = msg.sender;
+        authorized[regulatoryAuthority] = true;
+    }
+    
+    modifier onlyAuthorized() {
+        require(authorized[msg.sender], "Unauthorized");
+        _;
+    }
+    
+    function addStakeholder(address stakeholderAddress, string memory stakeholderType) internal {
+        require(!isManufacturer[stakeholderAddress], "Device manufacturer cannot be registered as a stakeholder");
+        require(!isHospital[stakeholderAddress], "Hospital cannot be registered as a stakeholder");
+        require(!isMaintenanceServiceProvider[stakeholderAddress], "Maintenance service provider cannot be registered as a stakeholder");
+        
+        if (keccak256(abi.encodePacked(stakeholderType)) == keccak256(abi.encodePacked("Manufacturer"))) {
+            isManufacturer[stakeholderAddress] = true;
+        } else if (keccak256(abi.encodePacked(stakeholderType)) == keccak256(abi.encodePacked("Hospital"))) {
+            isHospital[stakeholderAddress] = true;
+        } else if (keccak256(abi.encodePacked(stakeholderType)) == keccak256(abi.encodePacked("Maintenance Service Provider"))) {
+            isMaintenanceServiceProvider[stakeholderAddress] = true;
+        } else {
+            revert("Invalid stakeholder type");
+        }
+        
+        emit StakeholderRegistered(stakeholderAddress, stakeholderType);
+    }
+    
+    function registerStakeholder(address stakeholderAddress, string memory stakeholderType) public onlyAuthorized {
+        require(!authorized[stakeholderAddress], "Stakeholder already registered");
+        
+        addStakeholder(stakeholderAddress, stakeholderType);
+        authorized[stakeholderAddress] = true;
+    }
+    
+    function registerDevice(address deviceAddress, string memory deviceModel, uint maintenanceInterval, bytes32 deviceManualHash) public {
+        require(isManufacturer[msg.sender], "Only a registered device manufacturer can register a device");
+        require(devices[deviceAddress].deviceAddress != deviceAddress, "Device already registered");
+        
+        devices[deviceAddress] = Device(true, deviceAddress, deviceModel, maintenanceInterval, deviceManualHash);
+        emit DeviceRegistered(deviceAddress, deviceModel, maintenanceInterval, deviceManualHash);
+    }
+
+    function checkDeviceExists(address deviceAddress) public view returns (bool) {
+        return devices[deviceAddress].exists;
+    }
+    
+    function checkStakeholderExists(address stakeholderAddress) public view returns (bool) {
+        if (isManufacturer[stakeholderAddress] || isHospital[stakeholderAddress] || isMaintenanceServiceProvider[stakeholderAddress]) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    function isHospitalAuthorized(address stakeholderAddress) public view returns (bool) {
+    return isHospital[stakeholderAddress];
+}
+    function isDeviceManufacturerAuthorized(address stakeholderAddress) public view returns (bool) {
+    return isManufacturer[stakeholderAddress];
+}
+}
+
+
+
+contract WarrantyContract {
+    // Mapping to keep track of warranties registered for each device
+    mapping(address => mapping(bytes32 => Warranty)) deviceWarranties;
+    
+    // Event emitted when a warranty is registered
+    event WarrantyRegistered(address indexed deviceAddress, uint256 warrantyExpiration, string documentationHash);
+    event WarrantyDeactivated(address indexed deviceAddress);
+    event WarrantyClaimed(address indexed deviceAddress);
+
+    // Struct to represent a warranty
+    struct Warranty {
+    address deviceManufacturer;
+    bool registered ;
+    uint256 warrantyDuration;
+    uint256 warrantyExpiration;
+    string documentationHash;
+    bool isActive ;
+}
+
+    // Modifier to check that the caller is a registered device manufacturer
+    modifier onlyManufacturer() {
+        require(RegistrationContract(registrationContractAddress).checkStakeholderExists(msg.sender) && RegistrationContract(registrationContractAddress).isDeviceManufacturerAuthorized(msg.sender), "Only device manufacturers can call this function");
+        _;
+    }
+
+    // Modifier to check that the device is registered
+    modifier onlyRegisteredDevice(address deviceAddress) {
+        require(RegistrationContract(registrationContractAddress).checkDeviceExists(deviceAddress), "Device is not registered");
+        _;
+    }
+    
+    // Address of the registration contract
+    address public registrationContractAddress;
+
+    // Constructor to set the registration contract address
+    constructor(address _registrationContractAddress) public {
+        registrationContractAddress = _registrationContractAddress;
+    }
+
+    // Function to register a warranty for a device
+   function registerWarranty(address deviceAddress, uint256 warrantyDuration, uint256 warrantyExpiration, string memory documentationHash) public onlyManufacturer onlyRegisteredDevice(deviceAddress) {
+    // Check that the device doesn't already have a registered warranty
+    require(!deviceWarranties[deviceAddress][keccak256(abi.encodePacked())].registered, "Device already has a registered warranty");
+
+    // Register the warranty
+    Warranty storage warranty = deviceWarranties[deviceAddress][keccak256(abi.encodePacked())];
+    warranty.deviceManufacturer = msg.sender;
+    warranty.registered = true;
+    warranty.warrantyDuration = warrantyDuration;
+    warranty.warrantyExpiration = warrantyExpiration;
+    warranty.documentationHash = documentationHash;
+    warranty.isActive = true;
+
+    // Emit an event to indicate that the warranty has been registered
+    emit WarrantyRegistered(deviceAddress, warrantyExpiration, documentationHash);
+}
+
+
+     function validateAndClaimWarranty(
+        address deviceAddress,
+        bool shouldClaim
+    ) public onlyRegisteredDevice(deviceAddress) {
+        require(RegistrationContract(registrationContractAddress).checkStakeholderExists(msg.sender),"Stakeholder is not registered");
+        
+        Warranty storage warranty = deviceWarranties[deviceAddress][keccak256(abi.encodePacked())];
+        require(warranty.warrantyExpiration > now, "Warranty has expired");
+
+        if (shouldClaim) {
+            deactivateWarranty(deviceAddress);
+            emit WarrantyClaimed(deviceAddress);
+        }
+    }
+    
+    function deactivateWarranty(address deviceAddress) internal {
+        Warranty storage warranty = deviceWarranties[deviceAddress][keccak256(abi.encodePacked())];
+        require(warranty.isActive == true, "Warranty is already inactive.");
+
+        warranty.isActive = false;
+        warranty.warrantyExpiration = 0;
+        warranty.documentationHash = "";
+        emit WarrantyDeactivated(deviceAddress);
+    }
+}
+
+
+
+contract PerformanceIncentiveContract {
+    address registrationContractAddress;
+    
+    constructor(address _registrationContractAddress) public {
+        registrationContractAddress = _registrationContractAddress;
+    }
+    
+    function payIncentive (
+        address deviceAddress,
+        address recipient,
+        uint uptime,
+        uint targetUptime,
+        uint timePeriod
+        
+    ) public payable {
+        // Check if caller is a hospital
+        require(RegistrationContract(registrationContractAddress).checkStakeholderExists(msg.sender) && RegistrationContract(registrationContractAddress).isHospitalAuthorized(msg.sender), "Only hospitals can call this function");
+
+        
+        // Check if device exists
+        require(RegistrationContract(registrationContractAddress).checkDeviceExists(deviceAddress), "Device does not exist");
+        
+       // Check if recipient is registered in the registration contract 
+        require(RegistrationContract(registrationContractAddress).checkStakeholderExists(msg.sender), "Recipient not authorized");
+        
+        // Check if device uptime meets requirements
+        uint uptimeThreshold = (targetUptime * timePeriod) / 100;
+        require(uptime >= uptimeThreshold, "Device uptime does not meet requirements");
+        
+        // Execute payout to recipient
+        recipient.transfer(msg.value);
+        
+        
+        // Emit event
+        emit IncentivePaid(deviceAddress, recipient, uptime, targetUptime, timePeriod, msg.value);
+    }
+    
+    event IncentivePaid(
+        address deviceAddress,
+        address recipient,
+        uint uptime,
+        uint targetUptime,
+        uint timePeriod,
+        uint incentiveAmount
+    );
+}
+
+
