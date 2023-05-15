@@ -1,26 +1,33 @@
-pragma solidity ^0.4.25;
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.6;
 
 contract RegistrationContract {
     address regulatoryAuthority;
     mapping(address => bool) authorized;
+    mapping(address=>bool) isOracle;
     mapping(address => bool) isManufacturer;
     mapping(address => bool) isHospital;
     mapping(address => bool) isMaintenanceServiceProvider;
     
+
     struct Device {
         bool exists;
         address deviceAddress;
         string deviceModel;
         uint maintenanceInterval;
         bytes32 deviceManualHash;
+        uint status;// 0, active from 1 to 5 the different phases of the maintenance
+        
     }
 
     mapping(address => Device) devices;
     
+    
     event StakeholderRegistered(address stakeholderAddress, string stakeholderType);
     event DeviceRegistered(address deviceAddress, string deviceModel, uint maintenanceInterval, bytes32 deviceManualHash);
-    
-    constructor() public {
+    event OracleRegistered(address oracleAddress);
+
+    constructor()  {
         regulatoryAuthority = msg.sender;
         authorized[regulatoryAuthority] = true;
     }
@@ -29,7 +36,25 @@ contract RegistrationContract {
         require(authorized[msg.sender], "Unauthorized");
         _;
     }
-    
+    function isOracleRegistered(address x) public view returns (bool){
+        return isOracle[x];
+    }
+    function registerOracle(address oracle) public {
+        require(!isOracle[oracle]);
+        isOracle[oracle] = true;
+        emit OracleRegistered(oracle);
+
+    }
+    function isHospitalAuthorized(address stakeholderAddress) public view returns (bool) {
+    return isHospital[stakeholderAddress];
+}
+function checkStakeholderExistsForMaintenance(address stakeholderAddress) public view returns (bool) {
+        if (isManufacturer[stakeholderAddress] || isMaintenanceServiceProvider[stakeholderAddress]) {
+            return true;
+        } else {
+            return false;
+        }
+    }
     function addStakeholder(address stakeholderAddress, string memory stakeholderType) internal {
         require(!isManufacturer[stakeholderAddress], "Device manufacturer cannot be registered as a stakeholder");
         require(!isHospital[stakeholderAddress], "Hospital cannot be registered as a stakeholder");
@@ -59,7 +84,7 @@ contract RegistrationContract {
         require(isManufacturer[msg.sender], "Only a registered device manufacturer can register a device");
         require(devices[deviceAddress].deviceAddress != deviceAddress, "Device already registered");
         
-        devices[deviceAddress] = Device(true, deviceAddress, deviceModel, maintenanceInterval, deviceManualHash);
+        devices[deviceAddress] = Device(true, deviceAddress, deviceModel, maintenanceInterval, deviceManualHash,0);
         emit DeviceRegistered(deviceAddress, deviceModel, maintenanceInterval, deviceManualHash);
     }
 
@@ -75,14 +100,103 @@ contract RegistrationContract {
         }
     }
 
-    function isHospitalAuthorized(address stakeholderAddress) public view returns (bool) {
-    return isHospital[stakeholderAddress];
-}
     function isDeviceManufacturerAuthorized(address stakeholderAddress) public view returns (bool) {
     return isManufacturer[stakeholderAddress];
-}
+    }
+
 }
 
+contract Maintenance {
+    address owner;
+    RegistrationContract regContract;
+
+constructor(address registration) {
+    owner = msg.sender;
+    regContract = RegistrationContract(registration);
+
+}
+//for testing
+//[true,"0x4B20993Bc481177ec7E8f571ceCaE8A9e22C02db","samsung",1684082993,"0x0000000000000000000000000000000000000000000000000000006d6168616d",0]
+function performMaintenance(RegistrationContract.Device memory device) public 
+{
+    require(regContract.isOracleRegistered(msg.sender) == true && device.maintenanceInterval == block.timestamp);
+    device.status = 6;
+    emit MaintenanceStartedby(msg.sender,device.deviceAddress, device.status);
+
+}
+function performMaintenancebyHospital(RegistrationContract.Device memory device) public{
+     require(regContract.isHospitalAuthorized(msg.sender) == true);
+    device.status = 7;
+    emit MaintenanceStartedbyHospital(msg.sender,device.deviceAddress, device.status);
+}
+
+//events
+event InspectionCompleted(uint timestamp, address operator, address device, uint status);
+event CleaningCompleted(uint timestamp, address operator, address device, uint status);
+event TestingCompleted(uint timestamp, address operator, address device, uint status);
+event CalibrationCompleted(uint timestamp, address operator, address device, uint status);
+event DocumentationCompleted(uint timestamp, address operator, address device, uint status);
+event MaintenanceCompletedDeviceIsRestoredBack(uint timestamp, address operator, address device, uint maintenanceDueDate, uint status);
+event MaintenanceStartedby(address oracle,address device, uint status);
+event MaintenanceStartedbyHospital(address hospital, address device, uint status);
+
+
+function performInspection(RegistrationContract.Device memory device)public {
+    require(
+       ((regContract.checkStakeholderExistsForMaintenance(msg.sender) == true)&& (device.status == 7 || (device.status == 6)) )
+    && (regContract.checkDeviceExists(device.deviceAddress) == true));
+    device.status = 1;
+    emit InspectionCompleted(block.timestamp, msg.sender, device.deviceAddress,device.status);    
+}
+//[true,"0x4B20993Bc481177ec7E8f571ceCaE8A9e22C02db","samsung",1684082993,"0x0000000000000000000000000000000000000000000000000000006d6168616d",1]
+function completeCleaning(RegistrationContract.Device memory device) public {
+require (
+    (regContract.checkStakeholderExistsForMaintenance(msg.sender) == true) 
+         &&(device.status == 1)
+    && (regContract.checkDeviceExists(device.deviceAddress) == true));
+    device.status = 2;
+    emit CleaningCompleted(block.timestamp, msg.sender, device.deviceAddress,device.status);
+}
+
+function performTesting(RegistrationContract.Device memory device) public {
+require (
+    (regContract.checkStakeholderExistsForMaintenance(msg.sender) == true)  
+         
+         &&(device.status == 2)
+    && (regContract.checkDeviceExists(device.deviceAddress) == true));
+    device.status = 3;
+    emit TestingCompleted(block.timestamp, msg.sender, device.deviceAddress,device.status);
+}
+
+function doCalibration(RegistrationContract.Device memory device) public {
+require (
+    (regContract.checkStakeholderExistsForMaintenance(msg.sender) == true) 
+         &&(device.status == 3)
+    && (regContract.checkDeviceExists(device.deviceAddress) == true));
+    device.status = 4;
+    emit CalibrationCompleted(block.timestamp, msg.sender, device.deviceAddress,device.status);
+}
+
+function finalizeDocumentation(RegistrationContract.Device memory device) public {
+require (
+    (regContract.checkStakeholderExistsForMaintenance(msg.sender) == true)  
+         &&(device.status == 4)
+    && (regContract.checkDeviceExists(device.deviceAddress) == true));
+    device.status = 5;
+    emit DocumentationCompleted(block.timestamp, msg.sender, device.deviceAddress,device.status);
+}
+
+function HandOverDevice(RegistrationContract.Device memory device, uint nextInterval)public{
+   require (
+    (regContract.checkStakeholderExistsForMaintenance(msg.sender) == true) 
+         &&(device.status == 5)
+    && (regContract.checkDeviceExists(device.deviceAddress) == true));
+    device.status = 0;
+    device.maintenanceInterval= nextInterval;
+    emit MaintenanceCompletedDeviceIsRestoredBack(block.timestamp, msg.sender, device.deviceAddress,device.maintenanceInterval,device.status);
+
+}
+}
 
 
 contract WarrantyContract {
@@ -120,7 +234,7 @@ contract WarrantyContract {
     address public registrationContractAddress;
 
     // Constructor to set the registration contract address
-    constructor(address _registrationContractAddress) public {
+    constructor(address _registrationContractAddress) {
         registrationContractAddress = _registrationContractAddress;
     }
 
@@ -150,7 +264,7 @@ contract WarrantyContract {
         require(RegistrationContract(registrationContractAddress).checkStakeholderExists(msg.sender),"Stakeholder is not registered");
         
         Warranty storage warranty = deviceWarranties[deviceAddress][keccak256(abi.encodePacked())];
-        require(warranty.warrantyExpiration > now, "Warranty has expired");
+        require(warranty.warrantyExpiration > block.timestamp, "Warranty has expired");
 
         if (shouldClaim) {
             deactivateWarranty(deviceAddress);
@@ -174,13 +288,13 @@ contract WarrantyContract {
 contract PerformanceIncentiveContract {
     address registrationContractAddress;
     
-    constructor(address _registrationContractAddress) public {
+    constructor(address _registrationContractAddress) {
         registrationContractAddress = _registrationContractAddress;
     }
     
     function payIncentive (
         address deviceAddress,
-        address recipient,
+        address payable recipient,
         uint uptime,
         uint targetUptime,
         uint timePeriod
@@ -217,5 +331,3 @@ contract PerformanceIncentiveContract {
         uint incentiveAmount
     );
 }
-
-
