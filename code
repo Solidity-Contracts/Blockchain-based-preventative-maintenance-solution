@@ -135,7 +135,7 @@ event InspectionCompleted(uint timestamp, address operator, address device, uint
 event CleaningCompleted(uint timestamp, address operator, address device, uint status);
 event TestingCompleted(uint timestamp, address operator, address device, uint status);
 event CalibrationCompleted(uint timestamp, address operator, address device, uint status);
-event DocumentationCompleted(uint timestamp, address operator, address device, uint status);
+event DocumentationCompleted(uint timestamp, address operator, address device, uint status,bytes32 maintenaceReportHash);
 event MaintenanceCompletedDeviceIsRestoredBack(uint timestamp, address operator, address device, uint maintenanceDueDate, uint status);
 event MaintenanceStartedby(address oracle,address device, uint status);
 event MaintenanceStartedbyHospital(address hospital, address device, uint status);
@@ -177,13 +177,13 @@ require (
     emit CalibrationCompleted(block.timestamp, msg.sender, device.deviceAddress,device.status);
 }
 
-function finalizeDocumentation(RegistrationContract.Device memory device) public {
+function finalizeDocumentation(RegistrationContract.Device memory device, bytes32 maintenaceReportHash) public {
 require (
     (regContract.checkStakeholderExistsForMaintenance(msg.sender) == true)  
          &&(device.status == 4)
     && (regContract.checkDeviceExists(device.deviceAddress) == true));
     device.status = 5;
-    emit DocumentationCompleted(block.timestamp, msg.sender, device.deviceAddress,device.status);
+    emit DocumentationCompleted(block.timestamp, msg.sender, device.deviceAddress,device.status,maintenaceReportHash );
 }
 
 function HandOverDevice(RegistrationContract.Device memory device, uint nextInterval)public{
