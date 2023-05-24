@@ -14,8 +14,8 @@ contract RegistrationContract {
         bool exists;
         address deviceAddress;
         string deviceModel;
-        uint minMaintenanceInterval;
-        uint maxMaintenanceInterval;
+        uint maintenanceStart;
+        uint maintenanceInterval;
         bytes32 deviceManualHash;
         uint status; // 0, active from 1 to 5 the different phases of the maintenance
     }
@@ -80,13 +80,13 @@ function checkStakeholderExistsForMaintenance(address stakeholderAddress) public
         authorized[stakeholderAddress] = true;
     }
     
-    function registerDevice(address deviceAddress, string memory deviceModel, uint minMaintenanceInterval, uint maxMaintenanceInterval, bytes32 deviceManualHash) public {
+    function registerDevice(address deviceAddress, string memory deviceModel, uint maintenanceStart, uint maintenanceInterval, bytes32 deviceManualHash) public {
         require(isManufacturer[msg.sender], "Only a registered device manufacturer can register a device");
         require(devices[deviceAddress].deviceAddress != deviceAddress, "Device already registered");
 
         
-        devices[deviceAddress] = Device(true, deviceAddress, deviceModel, minMaintenanceInterval, maxMaintenanceInterval, deviceManualHash,0);
-        emit DeviceRegistered(deviceAddress, deviceModel, minMaintenanceInterval, maxMaintenanceInterval, deviceManualHash);
+        devices[deviceAddress] = Device(true, deviceAddress, deviceModel, maintenanceStart, maintenanceInterval, deviceManualHash,0);
+        emit DeviceRegistered(deviceAddress, deviceModel, maintenanceStart, maintenanceInterval, deviceManualHash);
     }
 
     function checkDeviceExists(address deviceAddress) public view returns (bool) {
@@ -120,7 +120,7 @@ constructor(address registration) {
 //[true,"0x4B20993Bc481177ec7E8f571ceCaE8A9e22C02db","samsung",1684082993,"0x0000000000000000000000000000000000000000000000000000006d6168616d",0]
 
 
-function performMaintenance(RegistrationContract.Device memory device) public {
+/*function performMaintenance(RegistrationContract.Device memory device) public {
     require(
         regContract.isOracleRegistered(msg.sender) == true &&
         block.timestamp >= device.minMaintenanceInterval &&
@@ -135,7 +135,28 @@ function performMaintenance(RegistrationContract.Device memory device) public {
         emit NoMaintenancePerformed(msg.sender, device.deviceAddress);
     }
 
-}
+}*/
+
+
+
+function performMaintenance(RegistrationContract.Device memory device) public {
+       require(
+        regContract.isOracleRegistered(msg.sender) == true &&
+        block.timestamp >= device.maintenanceStart &&
+        block.timestamp <= device.maintenanceStart + device.maintenanceInterval
+    );
+
+        device.status = 6;
+        emit MaintenanceStartedby(msg.sender, device.deviceAddress, device.status);
+
+        // Check if the current timestamp is beyond the max maintenance interval
+         if (block.timestamp > device.maintenanceStart + device.maintenanceInterval) {
+            emit NoMaintenancePerformed(msg.sender, device.deviceAddress);
+    }
+    }
+
+
+
 
 
 function performMaintenancebyHospital(RegistrationContract.Device memory device) public{
@@ -200,14 +221,14 @@ require (
     emit DocumentationCompleted(block.timestamp, msg.sender, device.deviceAddress,device.status,maintenaceReportHash );
 }
 
-function HandOverDevice(RegistrationContract.Device memory device, uint nextInterval)public{
+function HandOverDevice(RegistrationContract.Device memory device)public{
    require (
     (regContract.checkStakeholderExistsForMaintenance(msg.sender) == true) 
          &&(device.status == 5)
     && (regContract.checkDeviceExists(device.deviceAddress) == true));
     device.status = 0;
-    device.minMaintenanceInterval= nextInterval;
-    emit MaintenanceCompletedDeviceIsRestoredBack(block.timestamp, msg.sender, device.deviceAddress,device.minMaintenanceInterval,device.status);
+    device.maintenanceStart= block.timestamp; //records the new time the maintenance was completed to be the new start time
+    emit MaintenanceCompletedDeviceIsRestoredBack(block.timestamp, msg.sender, device.deviceAddress,device.maintenanceStart,device.status);
 
 }
 }
