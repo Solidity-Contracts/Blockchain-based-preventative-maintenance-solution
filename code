@@ -24,7 +24,7 @@ contract RegistrationContract {
     
     
     event StakeholderRegistered(address stakeholderAddress, string stakeholderType);
-    event DeviceRegistered(address deviceAddress, string deviceModel, uint minMaintenanceInterval, uint maxMaintenanceInterval, bytes32 deviceManualHash);
+    event DeviceRegistered(address deviceAddress, string deviceModel, uint maintenanceStart, uint maintenanceInterval, bytes32 deviceManualHash);
     event OracleRegistered(address oracleAddress);
 
     constructor()  {
@@ -154,9 +154,6 @@ function performMaintenance(RegistrationContract.Device memory device) public {
             emit NoMaintenancePerformed(msg.sender, device.deviceAddress);
     }
     }
-
-
-
 
 
 function performMaintenancebyHospital(RegistrationContract.Device memory device) public{
